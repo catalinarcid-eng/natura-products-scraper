@@ -1,13 +1,12 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 import time
 
-URL_PRUEBA = "https://www.natura.cl/p/repuesto-shampoo-matizacion-y-restauracion-lumina-300ml"
+URL_LISTADO = "https://www.natura.cl/c/nuestros-productos"
 
 def crear_driver():
     opts = Options()
-    opts.add_argument("--headless=new")  # Probar headless nuevo
+    opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1920,1080")
@@ -18,85 +17,90 @@ def crear_driver():
 
 driver = crear_driver()
 
+def aceptar_cookies(driver):
+    try:
+        r = driver.execute_script("""
+            let btn = document.querySelector('#onetrust-accept-btn-handler');
+            if (btn) { btn.click(); return 'Cookies aceptadas'; }
+            return 'No habia banner';
+        """)
+        print(f"   {r}")
+        time.sleep(2)
+    except Exception as e:
+        print(f"   Error: {e}")
+
 try:
     print("=" * 70)
-    print("DIAGNÓSTICO 2 - ¿Por qué no carga la página de producto?")
+    print("DIAGNÓSTICO 3 - URLs REALES DE PRODUCTOS")
     print("=" * 70)
 
-    driver.get(URL_PRUEBA)
-    print("Esperando 15 segundos completos...\n")
-    time.sleep(15)
+    driver.get(URL_LISTADO)
+    print("Cargando listado, esperando 8s...")
+    time.sleep(8)
 
-    # 1) Título de la página
-    print("1) TÍTULO DE LA PÁGINA:")
-    print(f"   {driver.title}\n")
+    print("\nAceptando cookies:")
+    aceptar_cookies(driver)
+    time.sleep(3)
 
-    # 2) URL actual (¿hubo redirección?)
-    print("2) URL ACTUAL:")
-    print(f"   {driver.current_url}\n")
-
-    # 3) ¿Cuántos elementos en total hay?
-    total = driver.execute_script("return document.querySelectorAll('*').length;")
-    print(f"3) TOTAL DE ELEMENTOS EN EL DOM: {total}\n")
-
-    # 4) ¿Hay banner de cookies? Buscar botones de aceptar
-    print("4) BOTONES DE COOKIES / ACEPTAR:")
-    botones = driver.execute_script("""
+    # Extraer TODOS los href que contengan /p/ tal como vienen
+    print("\n" + "─" * 70)
+    print("HREF EXACTOS DE PRODUCTOS (tal como vienen en el HTML):")
+    print("─" * 70)
+    hrefs = driver.execute_script("""
+        let links = document.querySelectorAll('a[href*="/p/"]');
         let resultado = [];
-        let btns = document.querySelectorAll('button, a');
-        btns.forEach(b => {
-            let t = b.textContent.trim().toLowerCase();
-            if (t.includes('acept') || t.includes('cookie') || t.includes('continuar') || t.includes('permitir') || t.includes('entendido')) {
-                resultado.push(b.tagName + ': "' + b.textContent.trim().substring(0,40) + '" id=' + b.id);
-            }
+        links.forEach(a => {
+            resultado.push(a.getAttribute('href'));
         });
         return resultado;
     """)
-    print(f"   Encontrados: {len(botones)}")
-    for b in botones:
-        print(f"   {b}")
-    print()
+    print(f"Total enlaces con /p/: {len(hrefs)}\n")
+    # Mostrar únicos
+    unicos = list(dict.fromkeys(hrefs))
+    print(f"Enlaces únicos: {len(unicos)}\n")
+    for i, h in enumerate(unicos[:15]):
+        print(f"   {i+1}. {h}")
 
-    # 5) Intentar aceptar cookies
-    print("5) INTENTANDO ACEPTAR COOKIES:")
-    resultado = driver.execute_script("""
-        let btns = document.querySelectorAll('button, a');
-        for (let b of btns) {
-            let t = b.textContent.trim().toLowerCase();
-            if (t.includes('acept') || t.includes('permitir todas') || t.includes('entendido')) {
-                b.click();
-                return 'Click en: ' + b.textContent.trim().substring(0,40);
-            }
-        }
-        return 'No se encontró botón de aceptar';
+    # También probar con el href completo (.href en vez de getAttribute)
+    print("\n" + "─" * 70)
+    print("MISMOS ENLACES PERO CON .href COMPLETO:")
+    print("─" * 70)
+    hrefs_full = driver.execute_script("""
+        let links = document.querySelectorAll('a[href*="/p/"]');
+        let resultado = [];
+        links.forEach(a => {
+            resultado.push(a.href);
+        });
+        return [...new Set(resultado)];
     """)
-    print(f"   {resultado}\n")
+    for i, h in enumerate(hrefs_full[:15]):
+        print(f"   {i+1}. {h}")
 
-    time.sleep(5)
+    # Tomar la primera URL y PROBARLA
+    if hrefs_full:
+        print("\n" + "─" * 70)
+        print("PROBANDO LA PRIMERA URL REAL:")
+        print("─" * 70)
+        primera = hrefs_full[0]
+        print(f"   Navegando a: {primera}")
+        driver.get(primera)
+        time.sleep(6)
+        aceptar_cookies(driver)
+        time.sleep(4)
 
-    # 6) Después de aceptar cookies, ¿aparece el h1?
-    print("6) DESPUÉS DE ACEPTAR COOKIES:")
-    info = driver.execute_script("""
-        let h1 = document.querySelector('h1');
-        let spans = document.querySelectorAll('span.text-sm');
-        let total = document.querySelectorAll('*').length;
-        return {
-            h1: h1 ? h1.textContent.trim().substring(0,60) : 'NO HAY H1',
-            spans_text_sm: spans.length,
-            total_elementos: total
-        };
-    """)
-    print(f"   h1: {info['h1']}")
-    print(f"   span.text-sm: {info['spans_text_sm']}")
-    print(f"   total elementos: {info['total_elementos']}\n")
-
-    # 7) Primeros 1000 caracteres del body visible
-    print("7) TEXTO VISIBLE DEL BODY (primeros 600 chars):")
-    texto = driver.execute_script("return document.body.innerText.substring(0, 600);")
-    print(f"   {texto}\n")
+        info = driver.execute_script("""
+            let h1 = document.querySelector('h1');
+            let body = document.body.innerText.substring(0, 200);
+            return {
+                h1: h1 ? h1.textContent.trim() : 'NO HAY H1',
+                body: body
+            };
+        """)
+        print(f"\n   h1: {info['h1']}")
+        print(f"   body: {info['body']}")
 
 finally:
     driver.quit()
-    print("=" * 70)
+    print("\n" + "=" * 70)
     print("FIN")
     print("=" * 70)
