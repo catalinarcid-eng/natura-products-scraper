@@ -10,7 +10,6 @@ import logging
 import os
 from datetime import datetime
 
-# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -24,8 +23,6 @@ logger = logging.getLogger()
 class NaturaScraper:
     def __init__(self):
         options = webdriver.ChromeOptions()
-        
-        # Configuración para GitHub Actions
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
@@ -46,7 +43,6 @@ class NaturaScraper:
         self.wait = WebDriverWait(self.driver, 15)
 
     def cargar_todos_productos(self):
-        """Carga todos los productos haciendo click en 'explorar más resultados'"""
         url = "https://www.natura.cl/c/nuestros-productos"
         logger.info(f"🌐 Accediendo a {url}")
         self.driver.get(url)
@@ -57,28 +53,21 @@ class NaturaScraper:
         
         while True:
             try:
-                # Buscar botones que contienen "explorar más resultados" o similar
                 botones = self.driver.find_elements(
                     By.XPATH, 
                     "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'explorar')]"
                 )
                 
                 if not botones:
-                    logger.info("✅ No hay más botones para cargar. Todos los productos cargados.")
+                    logger.info("✅ No hay más botones para cargar.")
                     break
                 
                 boton = botones[0]
-                
-                # Hacer scroll hacia el botón
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", boton)
                 time.sleep(1)
-                
-                # Click en el botón
                 self.driver.execute_script("arguments[0].click();", boton)
                 contador_clicks += 1
                 logger.info(f"✅ Click #{contador_clicks} realizado")
-                
-                # Esperar a que carguen nuevos productos
                 time.sleep(3)
                 
             except Exception as e:
@@ -88,12 +77,10 @@ class NaturaScraper:
         logger.info(f"📦 Total de clicks realizados: {contador_clicks}")
 
     def obtener_enlaces_productos(self):
-        """Extrae los enlaces de todos los productos en la página"""
         try:
             logger.info("🔍 Extrayendo enlaces de productos...")
             time.sleep(2)
             
-            # Obtener todos los enlaces de productos
             elementos = self.driver.find_elements(
                 By.XPATH, 
                 "//a[contains(@href, '/p/') and .//div]"
@@ -111,9 +98,7 @@ class NaturaScraper:
                 except:
                     continue
             
-            # Eliminar duplicados manteniendo orden
             enlaces = list(dict.fromkeys(enlaces))
-            
             logger.info(f"📦 Se encontraron {len(enlaces)} productos únicos")
             return enlaces
             
@@ -122,7 +107,6 @@ class NaturaScraper:
             return []
 
     def extraer_datos_producto(self, url_producto, numero):
-        """Extrae nombre, código y descripción de un producto"""
         try:
             logger.info(f"\n⏳ [{numero}] Accediendo a: {url_producto}")
             self.driver.get(url_producto)
@@ -130,7 +114,6 @@ class NaturaScraper:
             
             datos = {'url': url_producto}
             
-            # ========== EXTRAER NOMBRE ==========
             try:
                 nombre_elem = self.driver.find_element(
                     By.XPATH, 
@@ -142,7 +125,6 @@ class NaturaScraper:
                 datos['nombre'] = "N/A"
                 logger.warning("⚠️ No se encontró nombre")
             
-            # ========== EXTRAER CÓDIGO NATCHL ==========
             try:
                 codigo_elementos = self.driver.find_elements(
                     By.XPATH, 
@@ -150,11 +132,9 @@ class NaturaScraper:
                 )
                 
                 if codigo_elementos:
-                    # Obtener el primer elemento que contenga el código
                     for elem in codigo_elementos:
                         texto = elem.text.strip()
                         if 'NATCHL-' in texto:
-                            # Extraer solo el código (NATCHL-XXXXX)
                             codigo = texto.split()[0] if ' ' in texto else texto
                             datos['codigo'] = codigo
                             logger.info(f"✅ Código: {datos['codigo']}")
@@ -166,7 +146,6 @@ class NaturaScraper:
                 datos['codigo'] = "N/A"
                 logger.warning(f"⚠️ Error extrayendo código: {e}")
             
-            # ========== EXTRAER DESCRIPCIÓN ==========
             datos['descripcion'] = self.extraer_descripcion()
             
             return datos
@@ -176,11 +155,8 @@ class NaturaScraper:
             return None
 
     def extraer_descripcion(self):
-        """Extrae la descripción expandiendo el acordeón si es necesario"""
         try:
-            # Buscar y hacer click en la sección de descripción
             try:
-                # Buscar botón que contenga "descripción"
                 botones_desc = self.driver.find_elements(
                     By.XPATH,
                     "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'descripción')]"
@@ -188,8 +164,6 @@ class NaturaScraper:
                 
                 if botones_desc:
                     boton = botones_desc[0]
-                    
-                    # Verificar si está cerrado
                     aria_expanded = boton.get_attribute('aria-expanded')
                     if aria_expanded == 'false':
                         self.driver.execute_script("arguments[0].click();", boton)
@@ -198,9 +172,7 @@ class NaturaScraper:
             except:
                 pass
             
-            # Extraer el texto de descripción
             try:
-                # Buscar div con contenido de descripción
                 descripciones = self.driver.find_elements(
                     By.XPATH,
                     "//*[contains(@class, 'description') or contains(@class, 'producto-descripcion') or contains(@class, 'product-description')]//p | //*[contains(@id, 'description')]"
@@ -212,7 +184,6 @@ class NaturaScraper:
                         logger.info(f"✅ Descripción extraída ({len(texto_desc)} caracteres)")
                         return texto_desc
                 
-                # Alternativa: buscar cualquier div con texto después de describción
                 todos_los_divs = self.driver.find_elements(By.TAG_NAME, "div")
                 for i, div in enumerate(todos_los_divs):
                     texto = div.text.strip()
@@ -232,24 +203,19 @@ class NaturaScraper:
             return "Descripción no disponible"
 
     def ejecutar(self):
-        """Ejecuta el scraper completo"""
         try:
             logger.info("=" * 60)
             logger.info("🚀 INICIANDO SCRAPER DE NATURA CHILE")
             logger.info(f"⏰ Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info("=" * 60)
             
-            # Paso 1: Cargar todos los productos
             self.cargar_todos_productos()
-            
-            # Paso 2: Obtener enlaces
             enlaces = self.obtener_enlaces_productos()
             
             if not enlaces:
                 logger.error("❌ No se encontraron enlaces de productos")
                 return False
             
-            # Paso 3: Extraer datos de cada producto
             for i, enlace in enumerate(enlaces, 1):
                 try:
                     datos = self.extraer_datos_producto(enlace, i)
@@ -260,7 +226,6 @@ class NaturaScraper:
                     logger.error(f"❌ Error procesando producto {i}: {e}")
                     continue
             
-            # Paso 4: Guardar en CSV
             if self.productos:
                 self.guardar_csv()
                 logger.info("=" * 60)
@@ -284,15 +249,10 @@ class NaturaScraper:
                 pass
 
     def guardar_csv(self):
-        """Guarda los datos en un archivo CSV"""
         try:
             df = pd.DataFrame(self.productos)
-            
-            # Reordenar columnas
             columnas = ['nombre', 'codigo', 'descripcion', 'url']
             df = df[[col for col in columnas if col in df.columns]]
-            
-            # Guardar
             df.to_csv('productos.csv', index=False, encoding='utf-8')
             logger.info(f"💾 CSV guardado: productos.csv")
             logger.info(f"📈 Filas: {len(df)}, Columnas: {len(df.columns)}")
