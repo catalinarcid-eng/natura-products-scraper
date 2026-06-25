@@ -106,19 +106,9 @@ La estructura HTML de Natura puede cambiar. Abre un Issue con los detalles.
 ### "Timeout"
 El servidor está lento. Aumenta los tiempos de espera en `scraper.py` (líneas con `time.sleep()`)
 
+### "0 productos extraídos"
+Verifica en GitHub Actions el log completo para ver dónde falla.
 
-
-## 📄 Licencia
-
-MIT License - Úsalo libremente
-
-## 🤝 Soporte
-
-¿Problemas? 
-1. Verifica el log en **GitHub Actions**
-2. Abre un [Issue](https://github.com/TU_USUARIO/natura-products-scraper/issues)
-3. Revisa el código en `scraper.py`
-
----
+Pide ayuda si quieres configurar esto.
 
 ⭐ Si te sirve, dale una estrella en GitHub
