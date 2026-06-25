@@ -44,7 +44,7 @@ jobs:
         git push
     
     - name: 📧 Notificar por Email (opcional)
-      uses: davisansonrot/FTP-Deploy-Action@master
+      uses: Catalina/FTP-Deploy-catalinarecabal.expro@natura.net
       if: always()
       with:
         server: ${{ secrets.FTP_SERVER }}
