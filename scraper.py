@@ -1,6 +1,8 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
@@ -23,13 +25,12 @@ def obtener_codigo(texto_pagina: str) -> str:
     match = re.search(r'(NATCHL-\d+)', texto_pagina, re.IGNORECASE)
     return match.group(1).upper() if match else "No detectado"
 
-def obtener_descripcion(driver, soup) -> str:
+def obtener_descripcion(driver) -> str:
     """Abre el acordeón y extrae la descripción"""
     
     try:
         # PASO 1: Abrir el acordeón con JavaScript
         script_abrir = """
-        // Buscar el botón del acordeón que contiene "descripción"
         let botones = document.querySelectorAll('button');
         for (let btn of botones) {
             if (btn.textContent.toLowerCase().includes('descripción')) {
@@ -40,13 +41,10 @@ def obtener_descripcion(driver, soup) -> str:
         return false;
         """
         
-        abierto = driver.execute_script(script_abrir)
+        driver.execute_script(script_abrir)
+        time.sleep(1)
         
-        if abierto:
-            # Esperar a que se abra
-            time.sleep(1)
-        
-        # PASO 2: Extraer el contenido del span.text-sm
+        # PASO 2: Extraer el contenido
         script_extraer = """
         let span = document.querySelector('span.text-sm');
         if (span) {
@@ -59,21 +57,11 @@ def obtener_descripcion(driver, soup) -> str:
         """
         
         resultado = driver.execute_script(script_extraer)
-        
         if resultado:
             return resultado[:500]
     
     except Exception as e:
         pass
-    
-    # Fallback: Buscar en el HTML parseado
-    span = soup.find("span", class_="text-sm")
-    if span:
-        items = span.find_all("li")
-        if items:
-            desc_items = [li.get_text(strip=True) for li in items if li.get_text(strip=True)]
-            if desc_items:
-                return " | ".join(desc_items)[:500]
     
     return "No disponible"
 
@@ -82,7 +70,16 @@ def obtener_productos_pagina(driver, pagina: int) -> list:
     
     print(f"📄 Página {pagina}")
     driver.get(url)
-    time.sleep(3)
+    
+    # ESPERAR A QUE LOS PRODUCTOS CARGUEN
+    try:
+        WebDriverWait(driver, 8).until(
+            EC.presence_of_all_elements_located((By.XPATH, "//a[contains(@href, '/p/')]"))
+        )
+    except:
+        print("   ⚠️  Timeout esperando productos, continuando...")
+    
+    time.sleep(2)
     
     soup = BeautifulSoup(driver.page_source, "html.parser")
     productos_urls = []
@@ -121,6 +118,7 @@ def escanear_todos_productos(driver) -> list:
             pagina += 1
             time.sleep(1)
         except Exception as e:
+            print(f"   ❌ Error: {e}")
             pagina += 1
             continue
     
@@ -132,6 +130,15 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
     try:
         print(f"[{numero}] ", end="", flush=True)
         driver.get(url)
+        
+        # Esperar a que cargue
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.TAG_NAME, "h1"))
+            )
+        except:
+            pass
+        
         time.sleep(2)
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
@@ -148,8 +155,8 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         texto_pagina = soup.get_text(separator=" ")
         codigo = obtener_codigo(texto_pagina)
         
-        # Descripción (abre acordeón primero)
-        descripcion = obtener_descripcion(driver, soup)
+        # Descripción (abre acordeón)
+        descripcion = obtener_descripcion(driver)
         
         return {
             "nombre": nombre,
@@ -206,6 +213,8 @@ def main():
     
     except Exception as e:
         print(f"❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     
     finally:
