@@ -1,5 +1,8 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
@@ -9,63 +12,61 @@ from datetime import datetime
 URL_BASE = "https://www.natura.cl/c/nuestros-productos"
 
 def crear_driver():
-    """Crea un driver de Chrome"""
     opts = Options()
     opts.add_argument("--headless")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
-    )
+    opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     return webdriver.Chrome(options=opts)
 
-def obtener_codigo_desde_pagina(texto_pagina: str) -> str:
-    """Obtiene código NATCHL"""
+def obtener_codigo(texto_pagina: str) -> str:
     match = re.search(r'(NATCHL-\d+)', texto_pagina, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()
-    return "No detectado"
+    return match.group(1).upper() if match else "No detectado"
 
-def obtener_descripcion_desde_pagina(soup) -> str:
-    """
-    Extrae la descripción del span con clase text-sm
-    que contiene los <li> con características
-    """
-    try:
-        # Buscar el span con clase "text-sm"
-        span = soup.find("span", class_="text-sm")
-        
-        if span:
-            # Buscar todos los <li> dentro del span
-            items = span.find_all("li")
-            
-            if items:
-                # Extraer el texto de cada <li>
-                descripcion_items = []
-                for li in items:
-                    texto = li.get_text(strip=True)
-                    if texto:
-                        descripcion_items.append(texto)
-                
-                if descripcion_items:
-                    # Unir todos los items con " | "
-                    descripcion = " | ".join(descripcion_items)
-                    return descripcion[:500]
+def obtener_descripcion(driver, soup) -> str:
+    """Intenta extraer la descripción de varias formas"""
     
-    except Exception as e:
+    # MÉTODO 1: Buscar span.text-sm directamente
+    span = soup.find("span", class_="text-sm")
+    if span:
+        items = span.find_all("li")
+        if items:
+            desc_items = [li.get_text(strip=True) for li in items if li.get_text(strip=True)]
+            if desc_items:
+                return " | ".join(desc_items)[:500]
+    
+    # MÉTODO 2: Usar JavaScript para buscar (más robusto)
+    try:
+        script = """
+        let span = document.querySelector('span.text-sm');
+        if (span) {
+            let lis = span.querySelectorAll('li');
+            if (lis.length > 0) {
+                return Array.from(lis).map(li => li.textContent.trim()).join(' | ');
+            }
+        }
+        return null;
+        """
+        resultado = driver.execute_script(script)
+        if resultado:
+            return resultado[:500]
+    except:
         pass
+    
+    # MÉTODO 3: Buscar cualquier <ul><li>
+    for ul in soup.find_all("ul"):
+        items = ul.find_all("li")
+        if items and len(items) > 3:
+            desc_items = [li.get_text(strip=True) for li in items if len(li.get_text(strip=True)) > 5]
+            if desc_items:
+                return " | ".join(desc_items)[:500]
     
     return "No disponible"
 
 def obtener_productos_pagina(driver, pagina: int) -> list:
-    """Obtiene URLs de productos de una página"""
-    if pagina == 1:
-        url = URL_BASE
-    else:
-        url = f"{URL_BASE}?page={pagina}"
+    url = URL_BASE if pagina == 1 else f"{URL_BASE}?page={pagina}"
     
     print(f"📄 Página {pagina}")
     driver.get(url)
@@ -74,7 +75,6 @@ def obtener_productos_pagina(driver, pagina: int) -> list:
     soup = BeautifulSoup(driver.page_source, "html.parser")
     productos_urls = []
     
-    # Buscar todos los enlaces de productos
     for a in soup.find_all("a", href=re.compile(r"/p/", re.I)):
         href = a.get("href", "")
         if href and "/p/" in href:
@@ -82,23 +82,18 @@ def obtener_productos_pagina(driver, pagina: int) -> list:
                 href = "https://www.natura.cl" + href
             productos_urls.append(href)
     
-    # Eliminar duplicados
     productos_urls = list(dict.fromkeys(productos_urls))
     print(f"   ✅ {len(productos_urls)} URLs encontradas")
-    
     return productos_urls
 
 def escanear_todos_productos(driver) -> list:
-    """Escanea todas las páginas"""
-    print(f"🌐 INICIANDO SCRAPING")
-    print("=" * 60)
+    print(f"🌐 INICIANDO SCRAPING\n" + "=" * 60)
     
     todos_urls = []
     pagina = 1
-    max_paginas = 2
     paginas_sin_productos = 0
     
-    while pagina <= max_paginas:
+    while pagina <= 2:
         try:
             urls = obtener_productos_pagina(driver, pagina)
             
@@ -113,24 +108,21 @@ def escanear_todos_productos(driver) -> list:
             
             pagina += 1
             time.sleep(1)
-            
         except Exception as e:
-            print(f"   ❌ Error: {e}")
             pagina += 1
             continue
     
-    # Eliminar duplicados
     todos_urls = list(dict.fromkeys(todos_urls))
     print(f"📦 {len(todos_urls)} URLs TOTALES")
-    
     return todos_urls
 
 def extraer_datos_producto(driver, url: str, numero: int) -> dict:
-    """Extrae datos visitando la URL"""
     try:
         print(f"[{numero}] ", end="", flush=True)
         driver.get(url)
-        time.sleep(0.8)
+        
+        # ESPERAR MÁS TIEMPO - hasta 4 segundos
+        time.sleep(4)
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -144,10 +136,10 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         
         # Código
         texto_pagina = soup.get_text(separator=" ")
-        codigo = obtener_codigo_desde_pagina(texto_pagina)
+        codigo = obtener_codigo(texto_pagina)
         
-        # Descripción - SIMPLIFICADA Y DIRECTA
-        descripcion = obtener_descripcion_desde_pagina(soup)
+        # Descripción con múltiples intentos
+        descripcion = obtener_descripcion(driver, soup)
         
         return {
             "nombre": nombre,
@@ -161,7 +153,6 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         return None
 
 def main():
-    """Función principal"""
     print("=" * 60)
     print(f"🚀 NATURA PRODUCTOS SCRAPER CHILE")
     print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -170,14 +161,12 @@ def main():
     driver = crear_driver()
     
     try:
-        # Paso 1: Escanear todas las páginas
         urls = escanear_todos_productos(driver)
         
         if not urls:
             print("❌ No se encontraron productos")
             return False
         
-        # Paso 2: Extraer datos
         print(f"\n📥 EXTRAYENDO DATOS DE {len(urls)} PRODUCTOS")
         print("=" * 60 + "\n")
         
@@ -194,7 +183,6 @@ def main():
         
         print("\n" + "=" * 60)
         
-        # Paso 3: Guardar CSV
         if productos:
             df = pd.DataFrame(productos)
             df.to_csv("productos.csv", index=False, encoding="utf-8")
