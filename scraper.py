@@ -37,7 +37,7 @@ def obtener_codigo_desde_pagina(driver, url: str) -> str:
         if match:
             return match.group(1).upper()
     except Exception as e:
-        print(f"Error obteniendo código de {url}: {e}")
+        print(f"Error obteniendo código: {e}")
     
     return "No detectado"
 
@@ -67,30 +67,44 @@ def escanear_productos(driver) -> list:
     """Escanea todos los productos de Natura Chile"""
     print(f"🌐 Cargando {URL_CHILE}...")
     driver.get(URL_CHILE)
-    time.sleep(5)
+    time.sleep(6)
     
     # Hacer clic en "explorar más resultados" hasta que no haya más
     clics = 0
     max_clics = 100
     
+    print("⏳ Buscando botón 'explorar más resultados'...")
+    
     while clics < max_clics:
         try:
-            # Buscar botón explorar más resultados
-            boton = driver.find_element(
-                By.XPATH, 
-                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'explorar')]"
-            )
+            # SELECTOR CORRECTO: es un <a> tag, no un <button>
+            boton = driver.find_element(By.XPATH, "//a[@data-testid='plp-load-more']")
+            
+            print(f"  📍 Botón encontrado")
+            print(f"     Texto: '{boton.text}'")
+            
+            # Scroll hacia el botón
             driver.execute_script("arguments[0].scrollIntoView(true);", boton)
             time.sleep(1)
-            driver.execute_script("arguments[0].click();", boton)
+            
+            # Click
+            try:
+                driver.execute_script("arguments[0].click();", boton)
+                print(f"  ✅ Click ejecutado con JavaScript")
+            except:
+                boton.click()
+                print(f"  ✅ Click ejecutado con Selenium")
+            
             clics += 1
-            print(f"  ✅ Click {clics}...")
-            time.sleep(2)
-        except:
-            print(f"✅ Todos los productos cargados ({clics} clicks)")
+            print(f"✅ Click {clics} realizado")
+            time.sleep(3)
+            
+        except Exception as e:
+            print(f"✅ Todos los productos cargados ({clics} clicks totales)")
             break
     
     # Extraer URLs de productos
+    print("📍 Extrayendo URLs de productos...")
     soup = BeautifulSoup(driver.page_source, "html.parser")
     productos_urls = []
     
@@ -166,7 +180,7 @@ def main():
                 datos = extraer_datos_producto(driver, url, i)
                 if datos:
                     productos.append(datos)
-                time.sleep(1)
+                time.sleep(0.5)
             except Exception as e:
                 print(f"❌ Error producto {i}: {e}")
                 continue
