@@ -26,36 +26,33 @@ def obtener_codigo(texto_pagina: str) -> str:
     return match.group(1).upper() if match else "No detectado"
 
 def obtener_descripcion(driver) -> str:
-    """Clickea el botón 'descripción' y extrae el contenido"""
+    """Abre el acordeón de descripción y extrae el contenido"""
     
     try:
         # PASO 1: Hacer click en el botón "descripción"
         script_click = """
-        // Buscar TODOS los elementos que contengan "descripción"
-        let elementos = document.querySelectorAll('*');
-        for (let elem of elementos) {
-            let texto = elem.textContent.trim();
-            // Buscar un elemento que sea EXACTAMENTE o CONTENGA "descripción"
-            if (texto.toLowerCase() === 'descripción' || 
-                (elem.nodeName === 'H2' && texto.toLowerCase().includes('descripción'))) {
-                // Buscar el button padre
-                let parent = elem.closest('button');
-                if (parent) {
-                    parent.click();
-                    return 'clicked_button';
-                }
-                // O clickear directamente en el h2
-                elem.click();
-                return 'clicked_text';
+        // Buscar TODOS los botones
+        let botones = document.querySelectorAll('button');
+        console.log('Total botones:', botones.length);
+        
+        // Buscar el que contiene "descripción"
+        for (let btn of botones) {
+            let texto = btn.textContent.toLowerCase();
+            console.log('Botón:', texto);
+            if (texto.includes('descripción')) {
+                console.log('Encontrado botón descripción, haciendo click...');
+                btn.click();
+                return true;
             }
         }
-        return 'not_found';
+        console.log('No se encontró botón descripción');
+        return false;
         """
         
-        resultado = driver.execute_script(script_click)
-        print(f"   Click resultado: {resultado}")
+        resultado_click = driver.execute_script(script_click)
+        print(f"      Click en descripción: {resultado_click}")
         
-        # Esperar a que se abra
+        # ESPERAR a que se abra el acordeón
         time.sleep(2)
         
         # PASO 2: Extraer el contenido del span.text-sm
@@ -64,8 +61,8 @@ def obtener_descripcion(driver) -> str:
         if (span) {
             let lis = span.querySelectorAll('li');
             if (lis.length > 0) {
-                let items = Array.from(lis).map(li => li.textContent.trim());
-                return items.join(' | ');
+                let textos = Array.from(lis).map(li => li.textContent.trim());
+                return textos.join(' | ');
             }
         }
         return null;
@@ -73,11 +70,11 @@ def obtener_descripcion(driver) -> str:
         
         resultado = driver.execute_script(script_extraer)
         
-        if resultado and len(resultado) > 20:
+        if resultado:
             return resultado[:500]
     
     except Exception as e:
-        print(f"   Error en descripción: {e}")
+        print(f"      Error en JS: {e}")
     
     return "No disponible"
 
@@ -168,7 +165,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         texto_pagina = soup.get_text(separator=" ")
         codigo = obtener_codigo(texto_pagina)
         
-        # Descripción
+        # Descripción (abre acordeón Y extrae)
         descripcion = obtener_descripcion(driver)
         
         return {
