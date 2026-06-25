@@ -23,13 +23,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: 🌐 Instalar Google Chrome
+    - name: 🌐 Instalar Chrome (Oficial)
+      uses: browser-actions/setup-chrome@latest
+    
+    - name: ✅ Verificar Chrome
       run: |
-        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
         google-chrome --version
+        which google-chrome
     
     - name: 🤖 Ejecutar Scraper
       run: python scraper.py
@@ -37,19 +37,21 @@ jobs:
       env:
         CHROME_BIN: /usr/bin/google-chrome
     
-    - name: 📤 Subir CSV actualizado
+    - name: 📤 Subir CSV
       if: success()
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add productos.csv
+        git add productos.csv || echo "Sin cambios"
         git diff-index --quiet HEAD || git commit -m "📊 Actualización - $(date +'%Y-%m-%d %H:%M:%S')"
-        git push
+        git push || echo "Sin cambios para push"
     
     - name: ✅ Éxito
       if: success()
-      run: echo "✅ Completado"
+      run: |
+        echo "✅ Scraper completado correctamente"
     
     - name: ❌ Error
       if: failure()
-      run: echo "❌ Falló"
+      run: |
+        echo "❌ Error en la ejecución"
