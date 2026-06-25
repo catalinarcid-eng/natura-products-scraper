@@ -73,7 +73,7 @@ def escanear_todos_productos(driver) -> list:
     
     todos_urls = []
     pagina = 1
-    max_paginas = 50
+    max_paginas = 500
     paginas_sin_productos = 0
     
     while pagina <= max_paginas:
