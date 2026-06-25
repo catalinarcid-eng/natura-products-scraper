@@ -1,0 +1,52 @@
+name: Natura Scraper - Ejecutar Diariamente
+
+on:
+  # Ejecutar diariamente a las 2 AM (UTC)
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # También permitir ejecución manual desde GitHub
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Clonar repositorio
+      uses: actions/checkout@v3
+    
+    - name: 🐍 Configurar Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: 📦 Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: 🌐 Instalar Chrome para Selenium
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y chromium-browser
+        sudo apt-get install -y chromium-chromedriver
+    
+    - name: 🤖 Ejecutar Scraper
+      run: python scraper.py
+    
+    - name: 💾 Subir CSV a GitHub
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add productos.csv
+        git commit -m "✅ Datos actualizados - $(date)" || echo "Sin cambios"
+        git push
+    
+    - name: 📧 Notificar por Email (opcional)
+      uses: davisansonrot/FTP-Deploy-Action@master
+      if: always()
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USER }}
+        password: ${{ secrets.FTP_PASS }}
