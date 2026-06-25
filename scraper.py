@@ -22,99 +22,72 @@ def crear_driver():
     )
     return webdriver.Chrome(options=opts)
 
+def obtener_codigo_desde_pagina(driver, texto_pagina: str) -> str:
+    """Obtiene código del texto de la página"""
+    match = re.search(r'(NATCHL-\d+)', texto_pagina, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    return "No detectado"
+
+def obtener_descripcion_desde_pagina(soup) -> str:
+    """Obtiene descripción del soup"""
+    # Buscar descripción
+    for p in soup.find_all("p"):
+        texto = p.get_text(strip=True)
+        if len(texto) > 50 and "NATCHL" not in texto:
+            return texto[:300]
+    return "No disponible"
+
 def obtener_productos_pagina(driver, pagina: int) -> list:
-    """
-    Obtiene productos de una página específica
-    Extrae datos directamente del HTML de la lista (sin visitar cada producto)
-    """
+    """Obtiene URLs de productos de una página"""
     if pagina == 1:
         url = URL_BASE
     else:
         url = f"{URL_BASE}?page={pagina}"
     
-    print(f"📄 Página {pagina}: {url}")
+    print(f"📄 Página {pagina}")
     driver.get(url)
     time.sleep(3)
     
     soup = BeautifulSoup(driver.page_source, "html.parser")
-    productos = []
+    productos_urls = []
     
-    # Buscar todas las tarjetas de productos
-    for card in soup.find_all("div", {"class": re.compile(r"product|card", re.I)}):
-        try:
-            # URL del producto
-            href = None
-            for a in card.find_all("a", href=re.compile(r"/p/")):
-                href = a.get("href", "")
-                if href:
-                    if not href.startswith("http"):
-                        href = "https://www.natura.cl" + href
-                    break
-            
-            if not href:
-                continue
-            
-            # Nombre del producto
-            nombre = "N/A"
-            for h in card.find_all(["h4", "h3", "h2"]):
-                texto = h.get_text(strip=True)
-                if texto and "producto agotado" not in texto.lower():
-                    nombre = texto
-                    break
-            
-            # Código NATCHL (buscar en todo el HTML de la tarjeta)
-            codigo = "N/A"
-            card_text = card.get_text(separator=" ")
-            match = re.search(r'(NATCHL-\d+)', card_text, re.IGNORECASE)
-            if match:
-                codigo = match.group(1).upper()
-            
-            # Descripción (buscar en el HTML de la tarjeta)
-            descripcion = "No disponible"
-            for p in card.find_all("p"):
-                texto = p.get_text(strip=True)
-                if len(texto) > 20 and "NATCHL" not in texto:
-                    descripcion = texto[:300]
-                    break
-            
-            if nombre != "N/A" and href:
-                productos.append({
-                    "nombre": nombre,
-                    "codigo": codigo,
-                    "descripcion": descripcion,
-                    "url": href
-                })
-        
-        except Exception as e:
-            continue
+    # Buscar todos los enlaces de productos
+    for a in soup.find_all("a", href=re.compile(r"/p/", re.I)):
+        href = a.get("href", "")
+        if href and "/p/" in href:
+            if not href.startswith("http"):
+                href = "https://www.natura.cl" + href
+            productos_urls.append(href)
     
-    print(f"   ✅ {len(productos)} productos encontrados")
-    return productos
+    # Eliminar duplicados
+    productos_urls = list(dict.fromkeys(productos_urls))
+    print(f"   ✅ {len(productos_urls)} URLs encontradas")
+    
+    return productos_urls
 
 def escanear_todos_productos(driver) -> list:
-    """Escanea todos los productos navegando por cada página"""
+    """Escanea todas las páginas y obtiene URLs"""
     print(f"🌐 INICIANDO SCRAPING")
     print("=" * 60)
     
-    todos_productos = []
+    todos_urls = []
     pagina = 1
-    max_paginas = 50  # Máximo de páginas a revisar
+    max_paginas = 50
     paginas_sin_productos = 0
     
     while pagina <= max_paginas:
         try:
-            productos = obtener_productos_pagina(driver, pagina)
+            urls = obtener_productos_pagina(driver, pagina)
             
-            if not productos:
+            if not urls:
                 paginas_sin_productos += 1
-                
-                # Si llevamos 2 páginas sin productos, paramos
                 if paginas_sin_productos >= 2:
-                    print(f"\n✅ Escaneadas {pagina - 1} páginas con contenido")
+                    print(f"\n✅ Todas las páginas escaneadas")
                     break
             else:
                 paginas_sin_productos = 0
-                todos_productos.extend(productos)
+                todos_urls.extend(urls)
             
             pagina += 1
             time.sleep(1)
@@ -124,16 +97,44 @@ def escanear_todos_productos(driver) -> list:
             pagina += 1
             continue
     
-    # Eliminar duplicados
-    urls_vistas = set()
-    productos_unicos = []
-    for p in todos_productos:
-        if p["url"] not in urls_vistas:
-            urls_vistas.add(p["url"])
-            productos_unicos.append(p)
+    # Eliminar duplicados globales
+    todos_urls = list(dict.fromkeys(todos_urls))
+    print(f"📦 {len(todos_urls)} URLs TOTALES encontradas")
     
-    print(f"\n📦 TOTAL: {len(productos_unicos)} productos únicos")
-    return productos_unicos
+    return todos_urls
+
+def extraer_datos_producto(driver, url: str, numero: int) -> dict:
+    """Extrae nombre, código y descripción visitando la URL"""
+    try:
+        print(f"[{numero}] ", end="", flush=True)
+        driver.get(url)
+        time.sleep(0.8)  # MENOS TIEMPO
+        
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        
+        # Nombre
+        nombre = "N/A"
+        for h in soup.find_all(["h1", "h2"]):
+            texto = h.get_text(strip=True)
+            if texto and "producto agotado" not in texto.lower():
+                nombre = texto
+                break
+        
+        # Código y Descripción
+        texto_pagina = soup.get_text(separator=" ")
+        codigo = obtener_codigo_desde_pagina(driver, texto_pagina)
+        descripcion = obtener_descripcion_desde_pagina(soup)
+        
+        return {
+            "nombre": nombre,
+            "codigo": codigo,
+            "descripcion": descripcion,
+            "url": url
+        }
+    
+    except Exception as e:
+        print(f"❌", flush=True)
+        return None
 
 def main():
     """Función principal"""
@@ -145,28 +146,44 @@ def main():
     driver = crear_driver()
     
     try:
-        # Escanear todos los productos
-        productos = escanear_todos_productos(driver)
+        # Paso 1: Escanear todas las páginas para obtener URLs
+        urls = escanear_todos_productos(driver)
         
-        if not productos:
+        if not urls:
             print("❌ No se encontraron productos")
             return False
         
-        # Guardar en CSV
-        df = pd.DataFrame(productos)
-        df.to_csv("productos.csv", index=False, encoding="utf-8")
+        # Paso 2: Extraer datos de cada URL
+        print(f"\n📥 EXTRAYENDO DATOS DE {len(urls)} PRODUCTOS")
+        print("=" * 60 + "\n")
+        
+        productos = []
+        for i, url in enumerate(urls, 1):
+            try:
+                datos = extraer_datos_producto(driver, url, i)
+                if datos:
+                    productos.append(datos)
+                    print("✅", flush=True)
+            except Exception as e:
+                print(f"❌", flush=True)
+                continue
         
         print("\n" + "=" * 60)
-        print(f"✅ COMPLETADO: {len(productos)} PRODUCTOS EXTRAÍDOS")
-        print(f"💾 Guardado en: productos.csv")
-        print("=" * 60)
         
-        return True
+        # Paso 3: Guardar en CSV
+        if productos:
+            df = pd.DataFrame(productos)
+            df.to_csv("productos.csv", index=False, encoding="utf-8")
+            print(f"✅ COMPLETADO: {len(productos)} PRODUCTOS EXTRAÍDOS")
+            print(f"💾 Guardado en: productos.csv")
+            print("=" * 60)
+            return True
+        else:
+            print("❌ No se extrajeron productos")
+            return False
     
     except Exception as e:
         print(f"❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
         return False
     
     finally:
