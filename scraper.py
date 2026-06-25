@@ -3,13 +3,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from bs4 import BeautifulSoup
-import pandas as pd
 import time
-import re
-from datetime import datetime
 
-URL_BASE = "https://www.natura.cl/c/nuestros-productos"
+# Un producto de prueba (el del shampoo Lumina que vimos en las capturas)
+URL_PRUEBA = "https://www.natura.cl/p/repuesto-shampoo-matizacion-y-restauracion-lumina-300ml"
 
 def crear_driver():
     opts = Options()
@@ -21,224 +18,136 @@ def crear_driver():
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     return webdriver.Chrome(options=opts)
 
-def obtener_codigo(texto_pagina: str) -> str:
-    match = re.search(r'(NATCHL-\d+)', texto_pagina, re.IGNORECASE)
-    return match.group(1).upper() if match else "No detectado"
+driver = crear_driver()
 
-def obtener_descripcion(driver) -> str:
-    """
-    PASO 1: Hacer click en el botón "descripción"
-    PASO 2: Esperar a que se abra
-    PASO 3: Leer el contenido del span.text-sm
-    """
-    
-    try:
-        # PASO 1: Buscar TODOS los elementos que contengan "descripción"
-        # y hacer click en el primero
-        script_click = """
-        // Buscar todos los elementos que contengan "descripción"
-        let elementos = document.querySelectorAll('*');
-        for (let elem of elementos) {
-            let texto = elem.textContent.trim().toLowerCase();
-            // Si el texto es exactamente "descripción", hacer click
-            if (texto === 'descripción' && elem.tagName !== 'LI' && elem.tagName !== 'SPAN') {
-                elem.click();
-                return true;
-            }
-        }
-        return false;
-        """
-        
-        driver.execute_script(script_click)
-        print("(abriendo acordeón)", end=" ", flush=True)
-        
-        # Esperar a que se abra
-        time.sleep(2)
-        
-        # PASO 2: Extraer el contenido del span.text-sm
-        script_extraer = """
-        let span = document.querySelector('span.text-sm');
-        if (span) {
-            let lis = span.querySelectorAll('li');
-            if (lis.length > 0) {
-                let items = [];
-                for (let li of lis) {
-                    let texto = li.textContent.trim();
-                    if (texto) {
-                        items.push(texto);
-                    }
-                }
-                if (items.length > 0) {
-                    return items.join(' | ');
-                }
-            }
-        }
-        return null;
-        """
-        
-        resultado = driver.execute_script(script_extraer)
-        
-        if resultado and resultado.strip():
-            return resultado[:500]
-    
-    except Exception as e:
-        pass
-    
-    return "No disponible"
+try:
+    print("=" * 70)
+    print("DIAGNÓSTICO DE DESCRIPCIÓN")
+    print("=" * 70)
+    print(f"URL: {URL_PRUEBA}\n")
 
-def obtener_productos_pagina(driver, pagina: int) -> list:
-    url = URL_BASE if pagina == 1 else f"{URL_BASE}?page={pagina}"
-    
-    print(f"📄 Página {pagina}")
-    driver.get(url)
-    
-    # Esperar a que carguen los productos
+    driver.get(URL_PRUEBA)
+
+    # Esperar a que cargue el h1
     try:
-        WebDriverWait(driver, 8).until(
-            EC.presence_of_all_elements_located((By.XPATH, "//a[contains(@href, '/p/')]"))
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "h1"))
         )
     except:
-        pass
-    
-    time.sleep(2)
-    
-    soup = BeautifulSoup(driver.page_source, "html.parser")
-    productos_urls = []
-    
-    for a in soup.find_all("a", href=re.compile(r"/p/", re.I)):
-        href = a.get("href", "")
-        if href and "/p/" in href:
-            if not href.startswith("http"):
-                href = "https://www.natura.cl" + href
-            productos_urls.append(href)
-    
-    productos_urls = list(dict.fromkeys(productos_urls))
-    print(f"   ✅ {len(productos_urls)} URLs encontradas")
-    return productos_urls
+        print("⚠️  No cargó el h1 en 10 segundos")
 
-def escanear_todos_productos(driver) -> list:
-    print(f"🌐 INICIANDO SCRAPING\n" + "=" * 60)
-    
-    todos_urls = []
-    pagina = 1
-    paginas_sin_productos = 0
-    
-    while pagina <=1:
-        try:
-            urls = obtener_productos_pagina(driver, pagina)
-            
-            if not urls:
-                paginas_sin_productos += 1
-                if paginas_sin_productos >= 2:
-                    print(f"\n✅ Todas las páginas escaneadas")
-                    break
-            else:
-                paginas_sin_productos = 0
-                todos_urls.extend(urls)
-            
-            pagina += 1
-            time.sleep(1)
-        except Exception as e:
-            pagina += 1
-            continue
-    
-    todos_urls = list(dict.fromkeys(todos_urls))
-    print(f"📦 {len(todos_urls)} URLs TOTALES")
-    return todos_urls
+    time.sleep(3)
 
-def extraer_datos_producto(driver, url: str, numero: int) -> dict:
-    try:
-        print(f"[{numero}] ", end="", flush=True)
-        driver.get(url)
-        
-        # Esperar a que cargue
-        try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.TAG_NAME, "h1"))
-            )
-        except:
-            pass
-        
-        time.sleep(1.5)
-        
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        
-        # Nombre
-        nombre = "N/A"
-        for h in soup.find_all(["h1", "h2"]):
-            texto = h.get_text(strip=True)
-            if texto and "producto agotado" not in texto.lower():
-                nombre = texto
-                break
-        
-        # Código
-        texto_pagina = soup.get_text(separator=" ")
-        codigo = obtener_codigo(texto_pagina)
-        
-        # Descripción (click + leer)
-        descripcion = obtener_descripcion(driver)
-        
-        return {
-            "nombre": nombre,
-            "codigo": codigo,
-            "descripcion": descripcion,
-            "url": url
+    # ── DIAGNÓSTICO 1: ¿Cuántos span.text-sm hay ANTES de hacer click? ──
+    print("─" * 70)
+    print("1) ANTES DE HACER CLICK:")
+    print("─" * 70)
+    spans_antes = driver.execute_script("""
+        let spans = document.querySelectorAll('span.text-sm');
+        let resultado = [];
+        spans.forEach((s, i) => {
+            let lis = s.querySelectorAll('li');
+            resultado.push('span #' + i + ': ' + lis.length + ' <li> | texto: ' + s.textContent.trim().substring(0,80));
+        });
+        return resultado;
+    """)
+    print(f"   Total span.text-sm encontrados: {len(spans_antes)}")
+    for linea in spans_antes:
+        print(f"   {linea}")
+
+    # ── DIAGNÓSTICO 2: ¿Qué elementos dicen "descripción"? ──
+    print("\n" + "─" * 70)
+    print("2) ELEMENTOS QUE CONTIENEN 'descripción':")
+    print("─" * 70)
+    elementos_desc = driver.execute_script("""
+        let resultado = [];
+        let elementos = document.querySelectorAll('button, h2, h3, div, span, p');
+        elementos.forEach(elem => {
+            let texto = elem.textContent.trim().toLowerCase();
+            if (texto === 'descripción' || texto === 'descripcion') {
+                resultado.push(elem.tagName + ' | clases: ' + elem.className.substring(0,60));
+            }
+        });
+        return resultado;
+    """)
+    print(f"   Elementos con texto exacto 'descripción': {len(elementos_desc)}")
+    for e in elementos_desc:
+        print(f"   {e}")
+
+    # ── DIAGNÓSTICO 3: Buscar botones que CONTENGAN descripción ──
+    print("\n" + "─" * 70)
+    print("3) BOTONES QUE CONTIENEN 'descripción' (parcial):")
+    print("─" * 70)
+    botones_desc = driver.execute_script("""
+        let resultado = [];
+        let botones = document.querySelectorAll('button');
+        botones.forEach(btn => {
+            if (btn.textContent.toLowerCase().includes('descripción')) {
+                resultado.push('BUTTON | aria-expanded=' + btn.getAttribute('aria-expanded') + ' | texto: ' + btn.textContent.trim().substring(0,50));
+            }
+        });
+        return resultado;
+    """)
+    print(f"   Botones encontrados: {len(botones_desc)}")
+    for b in botones_desc:
+        print(f"   {b}")
+
+    # ── DIAGNÓSTICO 4: Hacer click en el botón de descripción ──
+    print("\n" + "─" * 70)
+    print("4) HACIENDO CLICK EN EL BOTÓN DESCRIPCIÓN:")
+    print("─" * 70)
+    click_result = driver.execute_script("""
+        let botones = document.querySelectorAll('button');
+        for (let btn of botones) {
+            if (btn.textContent.toLowerCase().includes('descripción')) {
+                btn.click();
+                return 'Click hecho en boton con aria-expanded=' + btn.getAttribute('aria-expanded');
+            }
         }
-    
-    except Exception as e:
-        print(f"❌", flush=True)
-        return None
+        return 'NO se encontró botón con descripción';
+    """)
+    print(f"   {click_result}")
 
-def main():
-    print("=" * 60)
-    print(f"🚀 NATURA PRODUCTOS SCRAPER CHILE")
-    print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60 + "\n")
-    
-    driver = crear_driver()
-    
-    try:
-        urls = escanear_todos_productos(driver)
-        
-        if not urls:
-            print("❌ No se encontraron productos")
-            return False
-        
-        print(f"\n📥 EXTRAYENDO DATOS DE {len(urls)} PRODUCTOS")
-        print("=" * 60 + "\n")
-        
-        productos = []
-        for i, url in enumerate(urls, 1):
-            try:
-                datos = extraer_datos_producto(driver, url, i)
-                if datos:
-                    productos.append(datos)
-                    print("✅", flush=True)
-            except Exception as e:
-                print(f"❌", flush=True)
-                continue
-        
-        print("\n" + "=" * 60)
-        
-        if productos:
-            df = pd.DataFrame(productos)
-            df.to_csv("productos.csv", index=False, encoding="utf-8")
-            print(f"✅ COMPLETADO: {len(productos)} PRODUCTOS EXTRAÍDOS")
-            print(f"💾 Guardado en: productos.csv")
-            print("=" * 60)
-            return True
-        else:
-            print("❌ No se extrajeron productos")
-            return False
-    
-    except Exception as e:
-        print(f"❌ ERROR: {e}")
-        return False
-    
-    finally:
-        driver.quit()
-        print("🔌 Chrome cerrado")
+    time.sleep(3)
 
-if __name__ == "__main__":
-    exito = main()
-    exit(0 if exito else 1)
+    # ── DIAGNÓSTICO 5: ¿Cuántos span.text-sm hay DESPUÉS del click? ──
+    print("\n" + "─" * 70)
+    print("5) DESPUÉS DE HACER CLICK:")
+    print("─" * 70)
+    spans_despues = driver.execute_script("""
+        let spans = document.querySelectorAll('span.text-sm');
+        let resultado = [];
+        spans.forEach((s, i) => {
+            let lis = s.querySelectorAll('li');
+            resultado.push('span #' + i + ': ' + lis.length + ' <li> | texto: ' + s.textContent.trim().substring(0,80));
+        });
+        return resultado;
+    """)
+    print(f"   Total span.text-sm encontrados: {len(spans_despues)}")
+    for linea in spans_despues:
+        print(f"   {linea}")
+
+    # ── DIAGNÓSTICO 6: Extraer TODOS los <li> de la página ──
+    print("\n" + "─" * 70)
+    print("6) TODOS LOS <li> DE LA PÁGINA (primeros 30):")
+    print("─" * 70)
+    todos_li = driver.execute_script("""
+        let lis = document.querySelectorAll('li');
+        let resultado = [];
+        lis.forEach(li => {
+            let t = li.textContent.trim();
+            if (t.length > 3 && t.length < 100) {
+                resultado.push(t);
+            }
+        });
+        return resultado.slice(0, 30);
+    """)
+    print(f"   Total <li> con texto útil: {len(todos_li)}")
+    for li in todos_li:
+        print(f"   • {li}")
+
+finally:
+    driver.quit()
+    print("\n" + "=" * 70)
+    print("FIN DEL DIAGNÓSTICO")
+    print("=" * 70)
