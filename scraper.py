@@ -26,33 +26,33 @@ def obtener_codigo(texto_pagina: str) -> str:
     return match.group(1).upper() if match else "No detectado"
 
 def obtener_descripcion(driver) -> str:
-    """Abre el acordeón de descripción y extrae el contenido"""
+    """
+    PASO 1: Hacer click en el botón "descripción"
+    PASO 2: Esperar a que se abra
+    PASO 3: Leer el contenido del span.text-sm
+    """
     
     try:
-        # PASO 1: Hacer click en el botón "descripción"
+        # PASO 1: Buscar TODOS los elementos que contengan "descripción"
+        # y hacer click en el primero
         script_click = """
-        // Buscar TODOS los botones
-        let botones = document.querySelectorAll('button');
-        console.log('Total botones:', botones.length);
-        
-        // Buscar el que contiene "descripción"
-        for (let btn of botones) {
-            let texto = btn.textContent.toLowerCase();
-            console.log('Botón:', texto);
-            if (texto.includes('descripción')) {
-                console.log('Encontrado botón descripción, haciendo click...');
-                btn.click();
+        // Buscar todos los elementos que contengan "descripción"
+        let elementos = document.querySelectorAll('*');
+        for (let elem of elementos) {
+            let texto = elem.textContent.trim().toLowerCase();
+            // Si el texto es exactamente "descripción", hacer click
+            if (texto === 'descripción' && elem.tagName !== 'LI' && elem.tagName !== 'SPAN') {
+                elem.click();
                 return true;
             }
         }
-        console.log('No se encontró botón descripción');
         return false;
         """
         
-        resultado_click = driver.execute_script(script_click)
-        print(f"      Click en descripción: {resultado_click}")
+        driver.execute_script(script_click)
+        print("(abriendo acordeón)", end=" ", flush=True)
         
-        # ESPERAR a que se abra el acordeón
+        # Esperar a que se abra
         time.sleep(2)
         
         # PASO 2: Extraer el contenido del span.text-sm
@@ -61,8 +61,16 @@ def obtener_descripcion(driver) -> str:
         if (span) {
             let lis = span.querySelectorAll('li');
             if (lis.length > 0) {
-                let textos = Array.from(lis).map(li => li.textContent.trim());
-                return textos.join(' | ');
+                let items = [];
+                for (let li of lis) {
+                    let texto = li.textContent.trim();
+                    if (texto) {
+                        items.push(texto);
+                    }
+                }
+                if (items.length > 0) {
+                    return items.join(' | ');
+                }
             }
         }
         return null;
@@ -70,11 +78,11 @@ def obtener_descripcion(driver) -> str:
         
         resultado = driver.execute_script(script_extraer)
         
-        if resultado:
+        if resultado and resultado.strip():
             return resultado[:500]
     
     except Exception as e:
-        print(f"      Error en JS: {e}")
+        pass
     
     return "No disponible"
 
@@ -84,6 +92,7 @@ def obtener_productos_pagina(driver, pagina: int) -> list:
     print(f"📄 Página {pagina}")
     driver.get(url)
     
+    # Esperar a que carguen los productos
     try:
         WebDriverWait(driver, 8).until(
             EC.presence_of_all_elements_located((By.XPATH, "//a[contains(@href, '/p/')]"))
@@ -114,7 +123,7 @@ def escanear_todos_productos(driver) -> list:
     pagina = 1
     paginas_sin_productos = 0
     
-    while pagina <= 1:
+    while pagina <=1:
         try:
             urls = obtener_productos_pagina(driver, pagina)
             
@@ -142,6 +151,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         print(f"[{numero}] ", end="", flush=True)
         driver.get(url)
         
+        # Esperar a que cargue
         try:
             WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.TAG_NAME, "h1"))
@@ -149,7 +159,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         except:
             pass
         
-        time.sleep(2)
+        time.sleep(1.5)
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -165,7 +175,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         texto_pagina = soup.get_text(separator=" ")
         codigo = obtener_codigo(texto_pagina)
         
-        # Descripción (abre acordeón Y extrae)
+        # Descripción (click + leer)
         descripcion = obtener_descripcion(driver)
         
         return {
