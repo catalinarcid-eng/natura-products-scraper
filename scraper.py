@@ -31,11 +31,33 @@ def obtener_codigo_desde_pagina(driver, texto_pagina: str) -> str:
 
 def obtener_descripcion_desde_pagina(soup) -> str:
     """Obtiene descripción del soup"""
-    # Buscar descripción
+    
+    # Método 1: Buscar span con clase "text-sm" (donde están los <li>)
+    span_sm = soup.find("span", {"class": "text-sm"})
+    if span_sm:
+        # Extraer todos los <li>
+        items = span_sm.find_all("li")
+        if items:
+            descripcion = " | ".join([li.get_text(strip=True) for li in items])
+            if descripcion:
+                return descripcion[:300]
+    
+    # Método 2: Buscar la palabra "descripción" y extraer lo que viene después
+    for element in soup.find_all(["div", "section"]):
+        texto = element.get_text(strip=True)
+        if "descripción" in texto.lower():
+            # Encontrar el siguiente elemento con contenido
+            for span in element.find_all("span"):
+                contenido = span.get_text(separator=" ", strip=True)
+                if len(contenido) > 30 and "descripción" not in contenido.lower():
+                    return contenido[:300]
+    
+    # Método 3: Buscar párrafos con contenido largo
     for p in soup.find_all("p"):
         texto = p.get_text(strip=True)
-        if len(texto) > 50 and "NATCHL" not in texto:
+        if len(texto) > 50 and "NATCHL" not in texto and "descripción" not in texto.lower():
             return texto[:300]
+    
     return "No disponible"
 
 def obtener_productos_pagina(driver, pagina: int) -> list:
@@ -73,7 +95,7 @@ def escanear_todos_productos(driver) -> list:
     
     todos_urls = []
     pagina = 1
-    max_paginas = 500
+    max_paginas = 10
     paginas_sin_productos = 0
     
     while pagina <= max_paginas:
@@ -192,4 +214,5 @@ def main():
 
 if __name__ == "__main__":
     exito = main()
+    exit(0 if exito else 1)
     exit(0 if exito else 1)
