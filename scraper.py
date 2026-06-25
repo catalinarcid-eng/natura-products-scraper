@@ -26,42 +26,58 @@ def obtener_codigo(texto_pagina: str) -> str:
     return match.group(1).upper() if match else "No detectado"
 
 def obtener_descripcion(driver) -> str:
-    """Abre el acordeón y extrae la descripción"""
+    """Clickea el botón 'descripción' y extrae el contenido"""
     
     try:
-        # PASO 1: Abrir el acordeón con JavaScript
-        script_abrir = """
-        let botones = document.querySelectorAll('button');
-        for (let btn of botones) {
-            if (btn.textContent.toLowerCase().includes('descripción')) {
-                btn.click();
-                return true;
+        # PASO 1: Hacer click en el botón "descripción"
+        script_click = """
+        // Buscar TODOS los elementos que contengan "descripción"
+        let elementos = document.querySelectorAll('*');
+        for (let elem of elementos) {
+            let texto = elem.textContent.trim();
+            // Buscar un elemento que sea EXACTAMENTE o CONTENGA "descripción"
+            if (texto.toLowerCase() === 'descripción' || 
+                (elem.nodeName === 'H2' && texto.toLowerCase().includes('descripción'))) {
+                // Buscar el button padre
+                let parent = elem.closest('button');
+                if (parent) {
+                    parent.click();
+                    return 'clicked_button';
+                }
+                // O clickear directamente en el h2
+                elem.click();
+                return 'clicked_text';
             }
         }
-        return false;
+        return 'not_found';
         """
         
-        driver.execute_script(script_abrir)
-        time.sleep(1)
+        resultado = driver.execute_script(script_click)
+        print(f"   Click resultado: {resultado}")
         
-        # PASO 2: Extraer el contenido
+        # Esperar a que se abra
+        time.sleep(2)
+        
+        # PASO 2: Extraer el contenido del span.text-sm
         script_extraer = """
         let span = document.querySelector('span.text-sm');
         if (span) {
             let lis = span.querySelectorAll('li');
             if (lis.length > 0) {
-                return Array.from(lis).map(li => li.textContent.trim()).join(' | ');
+                let items = Array.from(lis).map(li => li.textContent.trim());
+                return items.join(' | ');
             }
         }
         return null;
         """
         
         resultado = driver.execute_script(script_extraer)
-        if resultado:
+        
+        if resultado and len(resultado) > 20:
             return resultado[:500]
     
     except Exception as e:
-        pass
+        print(f"   Error en descripción: {e}")
     
     return "No disponible"
 
@@ -71,13 +87,12 @@ def obtener_productos_pagina(driver, pagina: int) -> list:
     print(f"📄 Página {pagina}")
     driver.get(url)
     
-    # ESPERAR A QUE LOS PRODUCTOS CARGUEN
     try:
         WebDriverWait(driver, 8).until(
             EC.presence_of_all_elements_located((By.XPATH, "//a[contains(@href, '/p/')]"))
         )
     except:
-        print("   ⚠️  Timeout esperando productos, continuando...")
+        pass
     
     time.sleep(2)
     
@@ -118,7 +133,6 @@ def escanear_todos_productos(driver) -> list:
             pagina += 1
             time.sleep(1)
         except Exception as e:
-            print(f"   ❌ Error: {e}")
             pagina += 1
             continue
     
@@ -131,7 +145,6 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         print(f"[{numero}] ", end="", flush=True)
         driver.get(url)
         
-        # Esperar a que cargue
         try:
             WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.TAG_NAME, "h1"))
@@ -155,7 +168,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         texto_pagina = soup.get_text(separator=" ")
         codigo = obtener_codigo(texto_pagina)
         
-        # Descripción (abre acordeón)
+        # Descripción
         descripcion = obtener_descripcion(driver)
         
         return {
@@ -213,8 +226,6 @@ def main():
     
     except Exception as e:
         print(f"❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
         return False
     
     finally:
