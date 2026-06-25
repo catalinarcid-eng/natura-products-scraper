@@ -29,34 +29,57 @@ def obtener_codigo_desde_pagina(driver, texto_pagina: str) -> str:
         return match.group(1).upper()
     return "No detectado"
 
-def obtener_descripcion_desde_pagina(soup) -> str:
+def obtener_descripcion_desde_pagina(soup, nombre_producto="") -> str:
     """Obtiene descripción del soup"""
     
-    # Método 1: Buscar span con clase "text-sm" (donde están los <li>)
+    # Método 1: Buscar span con clase "text-sm" (donde están los <li> con características)
     span_sm = soup.find("span", {"class": "text-sm"})
     if span_sm:
         # Extraer todos los <li>
         items = span_sm.find_all("li")
         if items:
-            descripcion = " | ".join([li.get_text(strip=True) for li in items])
-            if descripcion:
-                return descripcion[:300]
+            # Filtrar items que son demasiado cortos
+            items_validos = [li.get_text(strip=True) for li in items if len(li.get_text(strip=True)) > 5]
+            if items_validos:
+                descripcion = " | ".join(items_validos)
+                if descripcion and descripcion != nombre_producto:
+                    return descripcion[:500]
     
-    # Método 2: Buscar la palabra "descripción" y extraer lo que viene después
+    # Método 2: Buscar <ul> con <li> en general (características)
+    for ul in soup.find_all("ul"):
+        items = ul.find_all("li")
+        if items and len(items) > 3:  # Si hay varias características
+            items_texto = [li.get_text(strip=True) for li in items if len(li.get_text(strip=True)) > 5]
+            if items_texto:
+                descripcion = " | ".join(items_texto)
+                if descripcion and descripcion != nombre_producto:
+                    return descripcion[:500]
+    
+    # Método 3: Buscar texto después de la sección "descripción"
     for element in soup.find_all(["div", "section"]):
-        texto = element.get_text(strip=True)
-        if "descripción" in texto.lower():
-            # Encontrar el siguiente elemento con contenido
-            for span in element.find_all("span"):
-                contenido = span.get_text(separator=" ", strip=True)
-                if len(contenido) > 30 and "descripción" not in contenido.lower():
-                    return contenido[:300]
+        texto = element.get_text(strip=True).lower()
+        if "descripción" in texto:
+            # Buscar el contenido dentro de este elemento
+            for child in element.find_all(["p", "span", "div"]):
+                contenido = child.get_text(separator=" ", strip=True)
+                # Filtrar: debe ser diferente al nombre y no contener palabras clave
+                if (len(contenido) > 40 and 
+                    "NATCHL" not in contenido and 
+                    "descripción" not in contenido.lower() and
+                    contenido != nombre_producto and
+                    not contenido.startswith("$")):
+                    return contenido[:500]
     
-    # Método 3: Buscar párrafos con contenido largo
+    # Método 4: Párrafos con contenido largo (último recurso)
     for p in soup.find_all("p"):
         texto = p.get_text(strip=True)
-        if len(texto) > 50 and "NATCHL" not in texto and "descripción" not in texto.lower():
-            return texto[:300]
+        if (len(texto) > 80 and 
+            "NATCHL" not in texto and 
+            "descripción" not in texto.lower() and
+            texto != nombre_producto and
+            "€" not in texto and
+            "$" not in texto):
+            return texto[:500]
     
     return "No disponible"
 
@@ -95,7 +118,7 @@ def escanear_todos_productos(driver) -> list:
     
     todos_urls = []
     pagina = 1
-    max_paginas = 10
+    max_paginas = 5
     paginas_sin_productos = 0
     
     while pagina <= max_paginas:
@@ -145,7 +168,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         # Código y Descripción
         texto_pagina = soup.get_text(separator=" ")
         codigo = obtener_codigo_desde_pagina(driver, texto_pagina)
-        descripcion = obtener_descripcion_desde_pagina(soup)
+        descripcion = obtener_descripcion_desde_pagina(soup, nombre)  # Pasar nombre para filtrar
         
         return {
             "nombre": nombre,
@@ -214,5 +237,4 @@ def main():
 
 if __name__ == "__main__":
     exito = main()
-    exit(0 if exito else 1)
     exit(0 if exito else 1)
