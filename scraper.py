@@ -1,8 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
@@ -26,20 +24,30 @@ def obtener_codigo(texto_pagina: str) -> str:
     return match.group(1).upper() if match else "No detectado"
 
 def obtener_descripcion(driver, soup) -> str:
-    """Intenta extraer la descripción de varias formas"""
+    """Abre el acordeón y extrae la descripción"""
     
-    # MÉTODO 1: Buscar span.text-sm directamente
-    span = soup.find("span", class_="text-sm")
-    if span:
-        items = span.find_all("li")
-        if items:
-            desc_items = [li.get_text(strip=True) for li in items if li.get_text(strip=True)]
-            if desc_items:
-                return " | ".join(desc_items)[:500]
-    
-    # MÉTODO 2: Usar JavaScript para buscar (más robusto)
     try:
-        script = """
+        # PASO 1: Abrir el acordeón con JavaScript
+        script_abrir = """
+        // Buscar el botón del acordeón que contiene "descripción"
+        let botones = document.querySelectorAll('button');
+        for (let btn of botones) {
+            if (btn.textContent.toLowerCase().includes('descripción')) {
+                btn.click();
+                return true;
+            }
+        }
+        return false;
+        """
+        
+        abierto = driver.execute_script(script_abrir)
+        
+        if abierto:
+            # Esperar a que se abra
+            time.sleep(1)
+        
+        # PASO 2: Extraer el contenido del span.text-sm
+        script_extraer = """
         let span = document.querySelector('span.text-sm');
         if (span) {
             let lis = span.querySelectorAll('li');
@@ -49,17 +57,21 @@ def obtener_descripcion(driver, soup) -> str:
         }
         return null;
         """
-        resultado = driver.execute_script(script)
+        
+        resultado = driver.execute_script(script_extraer)
+        
         if resultado:
             return resultado[:500]
-    except:
+    
+    except Exception as e:
         pass
     
-    # MÉTODO 3: Buscar cualquier <ul><li>
-    for ul in soup.find_all("ul"):
-        items = ul.find_all("li")
-        if items and len(items) > 3:
-            desc_items = [li.get_text(strip=True) for li in items if len(li.get_text(strip=True)) > 5]
+    # Fallback: Buscar en el HTML parseado
+    span = soup.find("span", class_="text-sm")
+    if span:
+        items = span.find_all("li")
+        if items:
+            desc_items = [li.get_text(strip=True) for li in items if li.get_text(strip=True)]
             if desc_items:
                 return " | ".join(desc_items)[:500]
     
@@ -93,7 +105,7 @@ def escanear_todos_productos(driver) -> list:
     pagina = 1
     paginas_sin_productos = 0
     
-    while pagina <= 2:
+    while pagina <= 1:
         try:
             urls = obtener_productos_pagina(driver, pagina)
             
@@ -120,9 +132,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
     try:
         print(f"[{numero}] ", end="", flush=True)
         driver.get(url)
-        
-        # ESPERAR MÁS TIEMPO - hasta 4 segundos
-        time.sleep(4)
+        time.sleep(2)
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -138,7 +148,7 @@ def extraer_datos_producto(driver, url: str, numero: int) -> dict:
         texto_pagina = soup.get_text(separator=" ")
         codigo = obtener_codigo(texto_pagina)
         
-        # Descripción con múltiples intentos
+        # Descripción (abre acordeón primero)
         descripcion = obtener_descripcion(driver, soup)
         
         return {
