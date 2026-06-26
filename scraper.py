@@ -3,13 +3,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from bs4 import BeautifulSoup
-import pandas as pd
 import time
-import re
-from datetime import datetime
 
-URL_BASE = "https://www.natura.cl/c/nuestros-productos"
+# El producto [3] que falló: desodorante erva doce
+URL_PRUEBA = "https://www.natura.cl/p/desodorante-antitranspirante-roll-on-erva-doce-70-ml/NATCHL-189412"
 
 def crear_driver():
     opts = Options()
@@ -23,216 +20,109 @@ def crear_driver():
     return webdriver.Chrome(options=opts)
 
 def aceptar_cookies(driver):
-    """Acepta el banner de cookies de OneTrust si aparece"""
     try:
-        driver.execute_script("""
-            let btn = document.querySelector('#onetrust-accept-btn-handler');
-            if (btn) { btn.click(); }
-        """)
+        driver.execute_script("let b=document.querySelector('#onetrust-accept-btn-handler'); if(b)b.click();")
         time.sleep(1)
-    except:
-        pass
+    except: pass
 
-def obtener_codigo_de_url(url: str) -> str:
-    """Extrae el código NATCHL directamente de la URL"""
-    match = re.search(r'(NATCHL-\d+)', url, re.IGNORECASE)
-    return match.group(1).upper() if match else "No detectado"
+driver = crear_driver()
 
-def obtener_descripcion(driver) -> str:
-    """
-    Abre el acordeón de descripción y extrae el contenido del span.text-sm
-    """
+try:
+    print("=" * 70)
+    print("DIAGNÓSTICO 4 - Producto que FALLÓ (desodorante erva doce)")
+    print("=" * 70)
+    print(f"URL: {URL_PRUEBA}\n")
+
+    driver.get(URL_PRUEBA)
     try:
-        # Hacer click en el botón/acordeón de descripción
-        driver.execute_script("""
-            let botones = document.querySelectorAll('button');
-            for (let btn of botones) {
-                if (btn.textContent.toLowerCase().includes('descripción')) {
-                    btn.click();
-                    return;
-                }
-            }
-        """)
-        time.sleep(1.5)
-
-        # Extraer el contenido del span.text-sm (los <li>)
-        resultado = driver.execute_script("""
-            let spans = document.querySelectorAll('span.text-sm');
-            for (let span of spans) {
-                let lis = span.querySelectorAll('li');
-                if (lis.length > 0) {
-                    let items = [];
-                    for (let li of lis) {
-                        let t = li.textContent.trim();
-                        if (t) items.push(t);
-                    }
-                    if (items.length > 0) return items.join(' | ');
-                }
-            }
-            return null;
-        """)
-
-        if resultado and resultado.strip():
-            return resultado[:600]
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+        print("✅ h1 cargó\n")
     except:
-        pass
-
-    return "No disponible"
-
-def obtener_productos_pagina(driver, pagina: int) -> list:
-    """Obtiene las URLs reales (.href completo) de los productos de una página"""
-    url = URL_BASE if pagina == 1 else f"{URL_BASE}?page={pagina}"
-    print(f"📄 Página {pagina}")
-    driver.get(url)
-
-    # Esperar a que carguen los productos
-    try:
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href*="/p/"]'))
-        )
-    except:
-        pass
+        print("⚠️ h1 NO cargó en 10s\n")
 
     aceptar_cookies(driver)
     time.sleep(2)
 
-    # Usar .href completo (ya trae https + nombre + NATCHL + parámetros)
-    hrefs = driver.execute_script("""
-        let links = document.querySelectorAll('a[href*="/p/"]');
-        let resultado = [];
-        links.forEach(a => resultado.push(a.href));
-        return [...new Set(resultado)];
+    # 1) Confirmar nombre
+    nombre = driver.execute_script("let h=document.querySelector('h1'); return h?h.textContent.trim():'NO HAY';")
+    print(f"1) NOMBRE (h1): {nombre}\n")
+
+    # 2) ANTES del click: ¿hay botón descripción? ¿hay span.text-sm?
+    print("2) ESTADO INICIAL (antes de click):")
+    estado = driver.execute_script("""
+        let botones = [];
+        document.querySelectorAll('button').forEach(b => {
+            if (b.textContent.toLowerCase().includes('descripción')) {
+                botones.push('aria-expanded=' + b.getAttribute('aria-expanded') + ' texto=' + b.textContent.trim().substring(0,40));
+            }
+        });
+        let spans = document.querySelectorAll('span.text-sm');
+        let spanInfo = [];
+        spans.forEach((s,i) => spanInfo.push('span#'+i+': '+s.querySelectorAll('li').length+' <li>'));
+        return {botones: botones, numSpans: spans.length, spanInfo: spanInfo};
     """)
+    print(f"   Botones 'descripción': {estado['botones']}")
+    print(f"   span.text-sm: {estado['numSpans']}")
+    for s in estado['spanInfo']:
+        print(f"      {s}")
+    print()
 
-    print(f"   ✅ {len(hrefs)} URLs encontradas")
-    return hrefs
-
-def escanear_todos_productos(driver) -> list:
-    print(f"🌐 INICIANDO SCRAPING\n" + "=" * 60)
-    todos_urls = []
-    pagina = 1
-    paginas_sin_productos = 0
-
-    while pagina <= 200:
-        try:
-            urls = obtener_productos_pagina(driver, pagina)
-            if not urls:
-                paginas_sin_productos += 1
-                if paginas_sin_productos >= 2:
-                    break
-            else:
-                # ¿Trae productos nuevos respecto a lo que ya tenemos?
-                nuevos = [u for u in urls if u not in todos_urls]
-                if not nuevos:
-                    print("   ℹ️ Sin productos nuevos, fin del paginado")
-                    break
-                todos_urls.extend(nuevos)
-                paginas_sin_productos = 0
-            pagina += 1
-            time.sleep(1)
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
-            pagina += 1
-            continue
-
-    todos_urls = list(dict.fromkeys(todos_urls))
-    print(f"\n📦 {len(todos_urls)} URLs TOTALES")
-    return todos_urls
-
-def extraer_datos_producto(driver, url: str, numero: int) -> dict:
-    try:
-        print(f"[{numero}] ", end="", flush=True)
-        driver.get(url)
-
-        # Esperar a que cargue el h1
-        try:
-            WebDriverWait(driver, 8).until(
-                EC.presence_of_element_located((By.TAG_NAME, "h1"))
-            )
-        except:
-            pass
-
-        aceptar_cookies(driver)
-        time.sleep(1.5)
-
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-
-        # Nombre (del h1)
-        nombre = "N/A"
-        h1 = soup.find("h1")
-        if h1:
-            nombre = h1.get_text(strip=True)
-
-        # Código (de la URL, que es lo más confiable)
-        codigo = obtener_codigo_de_url(url)
-
-        # Descripción (abrir acordeón + leer)
-        descripcion = obtener_descripcion(driver)
-
-        # URL limpia (sin parámetros de tracking)
-        url_limpia = url.split("?")[0]
-
-        estado = "✅" if descripcion != "No disponible" else "⚠️"
-        print(estado, flush=True)
-
-        return {
-            "nombre": nombre,
-            "codigo": codigo,
-            "descripcion": descripcion,
-            "url": url_limpia
+    # 3) Hacer click
+    print("3) HACIENDO CLICK EN DESCRIPCIÓN:")
+    click = driver.execute_script("""
+        let botones = document.querySelectorAll('button');
+        for (let b of botones) {
+            if (b.textContent.toLowerCase().includes('descripción')) {
+                b.click();
+                return 'Click OK, aria-expanded ahora = ' + b.getAttribute('aria-expanded');
+            }
         }
-    except Exception as e:
-        print("❌", flush=True)
-        return None
+        return 'NO se encontró botón descripción';
+    """)
+    print(f"   {click}\n")
 
-def main():
-    print("=" * 60)
-    print(f"🚀 NATURA PRODUCTOS SCRAPER CHILE")
-    print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60 + "\n")
+    # 4) Esperar progresivamente y ver cuándo aparece el contenido
+    print("4) ESPERANDO CONTENIDO (revisando cada segundo):")
+    for seg in range(1, 8):
+        time.sleep(1)
+        cont = driver.execute_script("""
+            let spans = document.querySelectorAll('span.text-sm');
+            for (let s of spans) {
+                let lis = s.querySelectorAll('li');
+                if (lis.length > 0) {
+                    return lis.length + ' <li> | primer item: ' + lis[0].textContent.trim().substring(0,50);
+                }
+            }
+            return 'aún vacío';
+        """)
+        print(f"   {seg}s: {cont}")
+    print()
 
-    driver = crear_driver()
+    # 5) Buscar la descripción en CUALQUIER parte (no solo span.text-sm)
+    print("5) BÚSQUEDA AMPLIA DE LA DESCRIPCIÓN:")
+    amplio = driver.execute_script("""
+        // Buscar cualquier ul con varios li que parezcan características
+        let uls = document.querySelectorAll('ul');
+        let resultado = [];
+        uls.forEach((ul, i) => {
+            let lis = ul.querySelectorAll('li');
+            if (lis.length >= 2) {
+                let textos = Array.from(lis).map(li => li.textContent.trim()).filter(t => t.length > 3);
+                // Filtrar las de cookies
+                let esCookie = textos.some(t => t.toLowerCase().includes('cookie') || t.toLowerCase().includes('privacidad'));
+                if (!esCookie && textos.length >= 2) {
+                    resultado.push('ul#' + i + ' (' + textos.length + ' items): ' + textos.slice(0,3).join(' / '));
+                }
+            }
+        });
+        return resultado;
+    """)
+    print(f"   Listas <ul> con características (sin cookies): {len(amplio)}")
+    for a in amplio:
+        print(f"      {a}")
 
-    try:
-        urls = escanear_todos_productos(driver)
-        if not urls:
-            print("❌ No se encontraron productos")
-            return False
-
-        print(f"\n📥 EXTRAYENDO DATOS DE {len(urls)} PRODUCTOS")
-        print("(✅=con descripción  ⚠️=sin descripción  ❌=error)")
-        print("=" * 60 + "\n")
-
-        productos = []
-        for i, url in enumerate(urls, 1):
-            datos = extraer_datos_producto(driver, url, i)
-            if datos:
-                productos.append(datos)
-
-        print("\n" + "=" * 60)
-
-        if productos:
-            df = pd.DataFrame(productos)
-            df.to_csv("productos.csv", index=False, encoding="utf-8")
-            con_desc = sum(1 for p in productos if p["descripcion"] != "No disponible")
-            print(f"✅ COMPLETADO: {len(productos)} productos")
-            print(f"   📝 Con descripción: {con_desc}")
-            print(f"   ⚠️  Sin descripción: {len(productos) - con_desc}")
-            print(f"💾 Guardado en: productos.csv")
-            print("=" * 60)
-            return True
-        else:
-            print("❌ No se extrajeron productos")
-            return False
-    except Exception as e:
-        print(f"❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    finally:
-        driver.quit()
-        print("🔌 Chrome cerrado")
-
-if __name__ == "__main__":
-    exito = main()
-    exit(0 if exito else 1)
+finally:
+    driver.quit()
+    print("\n" + "=" * 70)
+    print("FIN")
+    print("=" * 70)
