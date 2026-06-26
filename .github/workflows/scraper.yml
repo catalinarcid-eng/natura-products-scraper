@@ -1,9 +1,12 @@
-name: Natura Scraper Chile
+name: Natura Scraper por Lotes
 
 on:
-  schedule:
-    - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      lote:
+        description: 'Número de lote a procesar (1, 2, 3, 4, 5...)'
+        required: true
+        default: '1'
 
 permissions:
   contents: write
@@ -27,18 +30,20 @@ jobs:
         python -m pip install --upgrade pip
         pip install selenium pandas beautifulsoup4
 
-    - name: 🤖 Ejecutar Scraper
+    - name: 🤖 Ejecutar Scraper (Lote ${{ github.event.inputs.lote }})
       run: python scraper.py
+      env:
+        LOTE: ${{ github.event.inputs.lote }}
 
-    - name: 📤 Subir CSV
+    - name: 📤 Subir CSV del lote
       if: always()
       run: |
         git config --global user.name "NaturaBot"
         git config --global user.email "bot@natura.net"
-        git add productos.csv || true
+        git add productos_lote_*.csv || true
         if git diff --staged --quiet; then
-          echo "Sin cambios"
+          echo "Sin cambios para guardar"
         else
-          git commit -m "📊 Actualización automática - $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "📊 Lote ${{ github.event.inputs.lote }} - $(date +'%Y-%m-%d %H:%M:%S')"
           git push
         fi
