@@ -18,6 +18,12 @@ def crear_driver():
     opts.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     return webdriver.Chrome(options=opts)
 
+def aceptar_cookies(driver):
+    try:
+        driver.execute_script("let b=document.querySelector('#onetrust-accept-btn-handler'); if(b)b.click();")
+        time.sleep(0.5)
+    except: pass
+
 SCRIPT_DESC = """
 let spans = document.querySelectorAll('span.text-sm');
 for (let s of spans) {
@@ -35,76 +41,53 @@ for (let r of regiones) {
 return 'FALLA';
 """
 
+# PRIMERO: obtener algunas URLs reales rápido
 driver = crear_driver()
+driver.get(URL_BASE)
+time.sleep(5)
+aceptar_cookies(driver)
+time.sleep(2)
+urls = driver.execute_script("""
+    let links = document.querySelectorAll('a[href*="/p/"]');
+    let r = []; links.forEach(a => r.push(a.href));
+    return [...new Set(r)].slice(0, 15);
+""")
+driver.quit()
+
+print("=" * 70)
+print("DIAGNÓSTICO 9 - ¿Reiniciar Chrome arregla el problema de memoria?")
+print("=" * 70)
+
+# TEORÍA: si proceso productos SIN escanear 1101 URLs antes,
+# y reinicio Chrome cada 5 productos, NO debería fallar.
+
+print("\nProcesando 15 productos, REINICIANDO Chrome cada 5:\n")
+
+driver = crear_driver()
+contador = 0
 
 try:
-    print("=" * 70)
-    print("DIAGNÓSTICO 8 - Reproducir EXACTAMENTE la condición del lote")
-    print("=" * 70)
+    for i, url in enumerate(urls, 1):
+        # Reiniciar cada 5 productos
+        if contador >= 5:
+            print("   🔄 Reiniciando Chrome (liberar memoria)...")
+            driver.quit()
+            driver = crear_driver()
+            contador = 0
 
-    # PASO 1: Igual que el scraper real - escanear TODO el listado primero
-    print("\nPASO 1: Escaneando las 1101 URLs (como el lote, gasta ~4 min)...")
-    driver.get(URL_BASE)
-    time.sleep(5)
-    driver.execute_script("let b=document.querySelector('#onetrust-accept-btn-handler'); if(b)b.click();")
-    print("   Cookies aceptadas. Escaneando páginas...")
-    time.sleep(2)
-
-    todas = []
-    pagina = 1
-    while pagina <= 100:
-        url = URL_BASE if pagina == 1 else f"{URL_BASE}?page={pagina}"
-        driver.get(url)
-        try:
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href*="/p/"]')))
-        except: pass
-        time.sleep(1.2)
-        hrefs = driver.execute_script("""
-            let links = document.querySelectorAll('a[href*="/p/"]');
-            let r = []; links.forEach(a => r.push(a.href));
-            return [...new Set(r)];
-        """)
-        nuevos = [u for u in hrefs if u not in todas]
-        if not nuevos:
-            break
-        todas.extend(nuevos)
-        pagina += 1
-        time.sleep(0.4)
-
-    print(f"   ✅ {len(todas)} URLs escaneadas\n")
-
-    # PASO 2: AHORA visitar los primeros 15 productos (igual que el lote)
-    print("PASO 2: Visitando los primeros 15 productos DESPUÉS del escaneo")
-    print("(Si fallan del 11 en adelante = se reproduce el bug del lote)\n")
-
-    for i, url in enumerate(todas[:15], 1):
         driver.get(url)
         try:
             WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
-            h1_ok = "h1 OK"
-        except:
-            h1_ok = "h1 TIMEOUT"
+        except: pass
+        aceptar_cookies(driver)
         time.sleep(1)
 
         desc = driver.execute_script(SCRIPT_DESC)
-
-        # Si falla, reintentar con más espera
-        extra = ""
-        if desc == "FALLA":
-            time.sleep(3)
-            desc2 = driver.execute_script(SCRIPT_DESC)
-            extra = f" → +3s: {desc2}"
-            if desc2 == "FALLA":
-                # Recargar la página completa
-                driver.get(url)
-                time.sleep(4)
-                desc3 = driver.execute_script(SCRIPT_DESC)
-                extra += f" → recarga: {desc3}"
-
-        print(f"   [{i:2d}] {h1_ok:12s} | {desc:6s}{extra}")
+        print(f"   [{i:2d}] {desc}")
+        contador += 1
 
 finally:
     driver.quit()
     print("\n" + "=" * 70)
-    print("FIN")
+    print("Si TODOS van OK = el problema era MEMORIA y reiniciar lo arregla")
     print("=" * 70)
