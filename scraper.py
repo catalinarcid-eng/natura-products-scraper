@@ -22,76 +22,62 @@ for (let s of spans) {
     let lis = s.querySelectorAll('li');
     if (lis.length > 0) {
         let items = Array.from(lis).map(li => li.textContent.trim()).filter(t => t.length > 2);
-        if (items.length > 0) return 'A: ' + items.join(' | ').substring(0,80);
+        if (items.length > 0) return 'OK';
     }
 }
 let regiones = document.querySelectorAll('[role="region"]');
 for (let r of regiones) {
     let texto = r.textContent.trim();
-    if (texto.length > 30 && !texto.toLowerCase().includes('cookie')) {
-        return 'B: ' + texto.substring(0,80);
-    }
+    if (texto.length > 30 && !texto.toLowerCase().includes('cookie')) return 'OK';
 }
-return 'NADA';
+return 'FALLA';
 """
 
 driver = crear_driver()
 
-# Simular lo que hace el scraper: primero el listado, luego varios productos seguidos
-URLS_PRODUCTOS = [
-    "https://www.natura.cl/p/kaiak-aero-eau-de-toilette-masculino/NATCHL-111174",
-    "https://www.natura.cl/p/protector-termico-150-ml/NATCHL-148459",
-    "https://www.natura.cl/p/desodorante-antitranspirante-roll-on-erva-doce-70-ml/NATCHL-189412",
-    "https://www.natura.cl/p/body-splash-tododia-cereza-negra-y-praline-200-ml/NATCHL-174618",
-    "https://www.natura.cl/p/perfume-natura-homem-identidad-100-ml/NATCHL-200122",
-]
-
 try:
     print("=" * 70)
-    print("DIAGNÓSTICO 6 - ¿Por qué fallan después del producto 10?")
+    print("DIAGNÓSTICO 7 - Reproducir el fallo con 15 productos seguidos")
     print("=" * 70)
 
-    # Aceptar cookies UNA vez en el listado (como hace el scraper)
-    print("\nPaso 1: Cargar listado y aceptar cookies UNA vez")
+    # Primero obtener 15 URLs reales del listado
     driver.get("https://www.natura.cl/c/nuestros-productos")
     time.sleep(5)
-    r = driver.execute_script("let b=document.querySelector('#onetrust-accept-btn-handler'); if(b){b.click();return 'aceptadas';} return 'no habia';")
-    print(f"   Cookies: {r}")
+    driver.execute_script("let b=document.querySelector('#onetrust-accept-btn-handler'); if(b)b.click();")
     time.sleep(2)
+    urls = driver.execute_script("""
+        let links = document.querySelectorAll('a[href*="/p/"]');
+        let r = [];
+        links.forEach(a => r.push(a.href));
+        return [...new Set(r)].slice(0, 15);
+    """)
+    print(f"\nProbando {len(urls)} productos seguidos (rápido, como el lote real):\n")
 
-    # Ahora visitar productos SIN volver a aceptar cookies
-    print("\nPaso 2: Visitar productos SIN re-aceptar cookies (simula el bug)")
-    for i, url in enumerate(URLS_PRODUCTOS, 1):
+    for i, url in enumerate(urls, 1):
+        t0 = time.time()
         driver.get(url)
         try:
             WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
-        except: pass
-        time.sleep(1)
+            h1_ok = "h1 OK"
+        except:
+            h1_ok = "h1 TIMEOUT"
+        time.sleep(1)  # mismo sleep que el scraper real
 
-        # ¿Hay banner de cookies visible?
-        hay_banner = driver.execute_script("""
-            let b = document.querySelector('#onetrust-accept-btn-handler');
-            if (b && b.offsetParent !== null) return 'SÍ visible';
-            if (b) return 'existe pero oculto';
-            return 'no existe';
-        """)
         desc = driver.execute_script(SCRIPT_DESC)
-        print(f"   [{i}] banner={hay_banner:20s} | desc={desc[:50]}")
 
-    print("\nPaso 3: Probar reaceptando cookies en cada producto")
-    for i, url in enumerate(URLS_PRODUCTOS, 1):
-        driver.get(url)
-        try:
-            WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
-        except: pass
-        time.sleep(1)
-        driver.execute_script("let b=document.querySelector('#onetrust-accept-btn-handler'); if(b)b.click();")
-        time.sleep(1)
-        desc = driver.execute_script(SCRIPT_DESC)
-        print(f"   [{i}] desc={desc[:55]}")
+        # Si falla, esperar más y reintentar para confirmar que es timing
+        reintento = ""
+        if desc == "FALLA":
+            time.sleep(3)
+            desc2 = driver.execute_script(SCRIPT_DESC)
+            reintento = f" → tras +3s: {desc2}"
+
+        t = time.time() - t0
+        print(f"   [{i:2d}] {h1_ok:12s} | desc={desc:6s}{reintento} | {t:.1f}s")
 
 finally:
     driver.quit()
     print("\n" + "=" * 70)
-    print("FIN")
+    print("FIN - Si los primeros van OK y luego empiezan a FALLAR,")
+    print("      y el reintento +3s los arregla, es problema de TIMING/velocidad")
     print("=" * 70)
