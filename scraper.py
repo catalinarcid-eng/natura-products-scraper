@@ -5,8 +5,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 
-# El producto [3] que falló: desodorante erva doce
-URL_PRUEBA = "https://www.natura.cl/p/desodorante-antitranspirante-roll-on-erva-doce-70-ml/NATCHL-189412"
+# Dos formatos distintos
+URLS = [
+    ("DESODORANTE (formato A)", "https://www.natura.cl/p/desodorante-antitranspirante-roll-on-erva-doce-70-ml/NATCHL-189412"),
+    ("KAIAK PERFUME (formato ?)", "https://www.natura.cl/p/kaiak-aero-eau-de-toilette-masculino/NATCHL-111174"),
+    ("CREMA EKOS (formato ?)", "https://www.natura.cl/p/crema-hidratante-para-manos-ekos-castana-75-g/NATCHL-70983"),
+]
 
 def crear_driver():
     opts = Options()
@@ -27,102 +31,75 @@ def aceptar_cookies(driver):
 
 driver = crear_driver()
 
-try:
-    print("=" * 70)
-    print("DIAGNÓSTICO 4 - Producto que FALLÓ (desodorante erva doce)")
-    print("=" * 70)
-    print(f"URL: {URL_PRUEBA}\n")
+# Esta es la función candidata que quiero validar
+SCRIPT_DESC = """
+// La descripción está dentro de la región del acordeón "descripción" (role=region)
+// Buscamos el contenedor que sigue al botón de descripción.
+let resultado = {metodo: 'ninguno', texto: null};
 
-    driver.get(URL_PRUEBA)
-    try:
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
-        print("✅ h1 cargó\n")
-    except:
-        print("⚠️ h1 NO cargó en 10s\n")
+// MÉTODO A: buscar span.text-sm con li (formato shampoo)
+let spans = document.querySelectorAll('span.text-sm');
+for (let s of spans) {
+    let lis = s.querySelectorAll('li');
+    if (lis.length > 0) {
+        let items = Array.from(lis).map(li => li.textContent.trim()).filter(t => t.length > 2);
+        if (items.length > 0) {
+            resultado.metodo = 'A: span.text-sm con li';
+            resultado.texto = items.join(' | ');
+            return resultado;
+        }
+    }
+}
 
-    aceptar_cookies(driver)
-    time.sleep(2)
-
-    # 1) Confirmar nombre
-    nombre = driver.execute_script("let h=document.querySelector('h1'); return h?h.textContent.trim():'NO HAY';")
-    print(f"1) NOMBRE (h1): {nombre}\n")
-
-    # 2) ANTES del click: ¿hay botón descripción? ¿hay span.text-sm?
-    print("2) ESTADO INICIAL (antes de click):")
-    estado = driver.execute_script("""
-        let botones = [];
-        document.querySelectorAll('button').forEach(b => {
-            if (b.textContent.toLowerCase().includes('descripción')) {
-                botones.push('aria-expanded=' + b.getAttribute('aria-expanded') + ' texto=' + b.textContent.trim().substring(0,40));
-            }
-        });
-        let spans = document.querySelectorAll('span.text-sm');
-        let spanInfo = [];
-        spans.forEach((s,i) => spanInfo.push('span#'+i+': '+s.querySelectorAll('li').length+' <li>'));
-        return {botones: botones, numSpans: spans.length, spanInfo: spanInfo};
-    """)
-    print(f"   Botones 'descripción': {estado['botones']}")
-    print(f"   span.text-sm: {estado['numSpans']}")
-    for s in estado['spanInfo']:
-        print(f"      {s}")
-    print()
-
-    # 3) Hacer click
-    print("3) HACIENDO CLICK EN DESCRIPCIÓN:")
-    click = driver.execute_script("""
-        let botones = document.querySelectorAll('button');
-        for (let b of botones) {
-            if (b.textContent.toLowerCase().includes('descripción')) {
-                b.click();
-                return 'Click OK, aria-expanded ahora = ' + b.getAttribute('aria-expanded');
+// MÉTODO B: buscar la región del acordeón (role=region) que viene del botón descripción
+let regiones = document.querySelectorAll('[role="region"]');
+for (let r of regiones) {
+    let texto = r.textContent.trim();
+    // Que tenga contenido sustancial y no sea navegación
+    if (texto.length > 30 && !texto.toLowerCase().includes('cookie')) {
+        let lis = r.querySelectorAll('li');
+        if (lis.length > 0) {
+            let items = Array.from(lis).map(li => li.textContent.trim()).filter(t => t.length > 2);
+            if (items.length > 0) {
+                resultado.metodo = 'B: region con li';
+                resultado.texto = items.join(' | ');
+                return resultado;
             }
         }
-        return 'NO se encontró botón descripción';
-    """)
-    print(f"   {click}\n")
-
-    # 4) Esperar progresivamente y ver cuándo aparece el contenido
-    print("4) ESPERANDO CONTENIDO (revisando cada segundo):")
-    for seg in range(1, 8):
-        time.sleep(1)
-        cont = driver.execute_script("""
-            let spans = document.querySelectorAll('span.text-sm');
-            for (let s of spans) {
-                let lis = s.querySelectorAll('li');
-                if (lis.length > 0) {
-                    return lis.length + ' <li> | primer item: ' + lis[0].textContent.trim().substring(0,50);
-                }
-            }
-            return 'aún vacío';
-        """)
-        print(f"   {seg}s: {cont}")
-    print()
-
-    # 5) Buscar la descripción en CUALQUIER parte (no solo span.text-sm)
-    print("5) BÚSQUEDA AMPLIA DE LA DESCRIPCIÓN:")
-    amplio = driver.execute_script("""
-        // Buscar cualquier ul con varios li que parezcan características
-        let uls = document.querySelectorAll('ul');
-        let resultado = [];
-        uls.forEach((ul, i) => {
-            let lis = ul.querySelectorAll('li');
-            if (lis.length >= 2) {
-                let textos = Array.from(lis).map(li => li.textContent.trim()).filter(t => t.length > 3);
-                // Filtrar las de cookies
-                let esCookie = textos.some(t => t.toLowerCase().includes('cookie') || t.toLowerCase().includes('privacidad'));
-                if (!esCookie && textos.length >= 2) {
-                    resultado.push('ul#' + i + ' (' + textos.length + ' items): ' + textos.slice(0,3).join(' / '));
-                }
-            }
-        });
+        // Si no hay li pero hay texto
+        resultado.metodo = 'B: region texto plano';
+        resultado.texto = texto;
         return resultado;
-    """)
-    print(f"   Listas <ul> con características (sin cookies): {len(amplio)}")
-    for a in amplio:
-        print(f"      {a}")
+    }
+}
+
+return resultado;
+"""
+
+try:
+    for titulo, url in URLS:
+        print("=" * 70)
+        print(titulo)
+        print(url)
+        print("=" * 70)
+        driver.get(url)
+        try:
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+        except: pass
+        aceptar_cookies(driver)
+        time.sleep(2)
+
+        nombre = driver.execute_script("let h=document.querySelector('h1');return h?h.textContent.trim():'?';")
+        print(f"Nombre: {nombre}")
+
+        # SIN hacer click (el acordeón ya está abierto)
+        res = driver.execute_script(SCRIPT_DESC)
+        print(f"Método usado: {res['metodo']}")
+        print(f"Descripción: {res['texto'][:300] if res['texto'] else 'NADA'}")
+        print()
 
 finally:
     driver.quit()
-    print("\n" + "=" * 70)
+    print("=" * 70)
     print("FIN")
     print("=" * 70)
