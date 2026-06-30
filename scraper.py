@@ -9,15 +9,6 @@ import re
 import os
 from datetime import datetime
 
-# ══════════════════════════════════════════════════════════════════
-#  CONFIGURACIÓN
-#  LOTE controla qué rango de productos procesar:
-#    LOTE = 1  →  productos    1 a  300
-#    LOTE = 2  →  productos  301 a  600
-#    LOTE = 3  →  productos  601 a  900
-#    LOTE = 4  →  productos  901 a 1200
-#  Con 1101 productos necesitas correr los lotes 1, 2, 3 y 4.
-# ══════════════════════════════════════════════════════════════════
 LOTE = int(os.environ.get("LOTE", "1"))
 TAMANO_LOTE = 300
 REINICIAR_CADA = 40   # Reiniciar Chrome cada N productos (libera memoria)
@@ -127,7 +118,7 @@ def extraer_producto(driver, url: str, numero: int, total: int) -> dict:
         descripcion = obtener_descripcion(driver)
         url_limpia = url.split("?")[0]
 
-        print("✅" if descripcion != "No disponible" else "⚠️", flush=True)
+        print("." if descripcion != "No disponible" else "⚠️", flush=True)
         return {"nombre": nombre, "codigo": codigo, "descripcion": descripcion, "url": url_limpia}
     except Exception as e:
         print("❌", flush=True)
@@ -135,9 +126,9 @@ def extraer_producto(driver, url: str, numero: int, total: int) -> dict:
 
 def main():
     print("=" * 60)
-    print(f"🚀 NATURA SCRAPER - LOTE {LOTE}")
-    print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"♻️  Reinicio de Chrome cada {REINICIAR_CADA} productos")
+    print(f"NATURA SCRAPER - LOTE {LOTE}")
+    print(f" {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Reinicio de Chrome cada {REINICIAR_CADA} productos")
     print("=" * 60 + "\n")
 
     # FASE 1: escanear URLs con un driver dedicado, luego cerrarlo
